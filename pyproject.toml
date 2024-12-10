@@ -1,0 +1,19 @@
+[project]
+name = "emotion-pet"
+version = "1.0.0"
+description = "基于情感交互的智能桌面宠物系统 — 多模态情感识别 × DQN 强化学习 × 成长系统"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.9"
+authors = [
+    { name = "Emotion Pet Research Group" },
+]
+keywords = ["desktop-pet", "emotion-recognition", "bert", "dqn", "pyqt", "mental-health"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-v --tb=short"
+
+[tool.setuptools.packages.find]
+include = ["emotion_recognition*", "rl_agent*", "growth_system*", "desktop_pet*"]
