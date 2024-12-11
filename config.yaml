@@ -1,0 +1,37 @@
+# 项目全局配置
+# 各模块的细粒度配置见各自目录下的 config.yaml
+
+project:
+  name: emotion-pet
+  version: 1.0.0
+
+# 全局随机种子（保证实验可复现）
+seed: 42
+
+# 训练设备：cuda / cpu / mps
+device: cuda
+
+# 数据根目录
+data_root: ./data
+
+# 模型保存路径
+checkpoint_root: ./checkpoints
+
+# 日志目录
+log_root: ./logs
+
+# 情绪标签（7 类，对齐论文设定）
+emotion_labels:
+  - happy
+  - sad
+  - angry
+  - fear
+  - surprise
+  - disgust
+  - neutral
+
+# 简化版 3 类映射（用于 NLP 情感分析分支）
+sentiment_labels:
+  - Negative
+  - Neutral
+  - Positive
