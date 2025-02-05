@@ -11,7 +11,7 @@
 >
 > Paper: *Design and Application of an Affective Desktop Pet — A Social Practice Study on College Student Mental Health* ([docs/paper.pdf](docs/paper.pdf), in Chinese).
 >
-> 中文文档请见 [readme.zh.md](readme.zh.md).
+> 中文文档请见 [README.zh.md](README.zh.md).
 
 ---
 
@@ -117,7 +117,7 @@ Real user interaction data requires a deployed product and months of collection.
 ```
 emotion-pet/
 ├── README.md                 # This file (English)
-├── readme.zh.md              # Chinese README
+├── README.zh.md              # Chinese README
 ├── config.yaml               # Global config (seed, device, emotion labels)
 ├── requirements.txt          # Python dependencies
 ├── pyproject.toml            # Package metadata & pytest config

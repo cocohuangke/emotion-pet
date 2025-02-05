@@ -98,7 +98,7 @@
 ```
 emotion-pet/
 ├── README.md                 # 英文文档
-├── readme.zh.md              # 本文件（中文文档）
+├── README.zh.md              # 本文件（中文文档）
 ├── config.yaml               # 全局配置（随机种子、设备、情绪标签）
 ├── requirements.txt          # Python 依赖
 ├── pyproject.toml            # 包元数据
