@@ -244,21 +244,6 @@ python -m desktop_pet.main
 
 ---
 
-## 路线图
-
-- [x] 项目骨架搭建、模块接口定义
-- [x] 多模态情感识别模型实现（BERT + CNN+LSTM + Fusion）
-- [x] DQN 强化学习智能体实现
-- [x] 成长系统与属性管理
-- [x] PyQt5 桌面窗口与动画框架
-- [ ] 完成模型训练，补充实验数据
-- [ ] 执行 300 人对照用户测试
-- [ ] 中文语音情感数据增强
-- [ ] 宠物外观自定义系统
-- [ ] 打包为 Windows 安装程序
-
----
-
 ## License
 
 [MIT](LICENSE) © 2025 Emotion Pet Research Group

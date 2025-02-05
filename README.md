@@ -338,23 +338,6 @@ python -m pytest tests/ -v           # 48 passed
 
 ---
 
-## Roadmap
-
-- [x] Project skeleton & module interfaces
-- [x] Multimodal emotion recognition (BERT + CNN+LSTM + Fusion)
-- [x] DQN reinforcement learning agent
-- [x] Growth system with SQLite persistence
-- [x] PyQt5 transparent window & animation framework
-- [x] Unit test suite (48 tests passing)
-- [x] Preliminary mock training results
-- [ ] Full training on SST-2 / GoEmotions / RAVDESS
-- [ ] 300-participant controlled user study (PHQ-9 / GAD-7 / PSS)
-- [ ] Chinese speech emotion data augmentation
-- [ ] Pet appearance customization
-- [ ] Windows installer packaging
-
----
-
 ## License
 
 [MIT](LICENSE) © 2025 Emotion Pet Research Group
