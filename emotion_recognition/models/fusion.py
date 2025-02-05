@@ -1,9 +1,5 @@
 """多模态融合情绪分类模型。
 
-对应论文 3.2 节的 ``EmotionRecognitionModel``。论文给出的示例代码存在
-全角标点（中文逗号/括号/冒号）混入导致的语法错误，本实现保持其架构语义
-不变并修复语法问题：
-
 * 文本分支：BERT 输出 768 维 -> ``text_fc`` 投影到 ``num_emotions``；
 * 语音分支：CNN+LSTM 输出 128 维 -> ``audio_fc`` 投影到 ``num_emotions``；
 * 视觉分支：视觉特征 512 维 -> ``visual_fc`` 投影到 ``num_emotions``
@@ -11,10 +7,6 @@
 * 三路 ``num_emotions`` 维 logits 在特征维拼接 -> ``fusion`` 全连接
   （``num_emotions * 3 -> num_emotions``）输出最终分类 logits。
 
-与论文的差异（有意为之）：
-    * 论文 ``forward`` 签名顺序为 ``(visual, audio, text)``，本实现改为
-      ``(input_ids, audio, attention_mask, visual)``，与数据集
-      ``(text, audio, label)`` 的返回顺序一致，避免调用侧错位。
 """
 from __future__ import annotations
 

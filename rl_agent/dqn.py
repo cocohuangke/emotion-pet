@@ -1,6 +1,5 @@
 """DQN 深度 Q 网络 (Deep Q-Network)
 
-对应论文 3.3 节「基于 DQN 的动态反馈系统」的核心网络结构：
     - 3 层 MLP: state_size -> 64 -> 64 -> action_size
     - 支持目标网络 (target network) 软更新 (soft update)，稳定训练
     - ε-greedy 动作选择策略，平衡探索 (exploration) 与利用 (exploitation)

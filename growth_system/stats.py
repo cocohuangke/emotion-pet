@@ -1,9 +1,8 @@
 """PetStats —— 宠物成长核心属性数据类。
 
-对齐论文 3.4 节「成长型交互系统」：宠物在长期交互过程中，通过
-心情(mood)、好感度(affinity)、精力(energy)、经验(exp)等状态量的
-持续累积，驱动等级(level)提升、技能(skills)解锁与外观(appearance)
-的阶段性演化。
+宠物在长期交互过程中，通过心情(mood)、好感度(affinity)、精力(energy)、
+经验(exp)等状态量的持续累积，驱动等级(level)提升、技能(skills)解锁与
+外观(appearance)的阶段性演化。
 
 本模块提供：
     - 带边界约束（clamp）的属性容器 PetStats

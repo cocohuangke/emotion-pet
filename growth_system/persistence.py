@@ -2,7 +2,7 @@
 
 将 PetStats 映射为关系表 ``pet_stats``，提供 ``save_stats`` / ``load_stats``
 两个函数式接口，供桌面宠物退出时保存成长状态、启动时恢复，从而实现
-「成长状态跨会话延续」（论文 3.4 节长期成长的核心支撑）。
+「成长状态跨会话延续」。
 
 采用 SQLAlchemy 2.0 声明式风格（DeclarativeBase + Mapped + mapped_column）。
 """

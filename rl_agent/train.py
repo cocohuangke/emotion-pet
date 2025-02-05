@@ -1,6 +1,6 @@
 """DQN 训练入口
 
-实现经典 DQN 训练循环（论文 3.3 节），完整流程为：
+实现经典 DQN 训练循环，完整流程为：
 
     interact (与环境交互) -> remember (存入回放池) -> replay (采样学习)
     -> update target (软更新目标网络)
