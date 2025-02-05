@@ -7,8 +7,6 @@
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-ee4c2c.svg)](https://pytorch.org/)
 [![Tests](https://img.shields.io/badge/tests-48%20passed-brightgreen.svg)](tests/)
 
-> 🏆 **Best Academic Award — Desktop Smart Pet**, 2025 winter social practice.
->
 > Paper: *Design and Application of an Affective Desktop Pet — A Social Practice Study on College Student Mental Health* ([docs/paper.pdf](docs/paper.pdf), in Chinese).
 >
 > 中文文档请见 [README.zh.md](README.zh.md).
@@ -173,7 +171,6 @@ emotion-pet/
     ├── dataset.md            # Dataset documentation
     ├── experiments.md        # Experiment records
     ├── paper.pdf             # Original research paper
-    └── award.jpg             # Award certificate
 ```
 
 ---
@@ -331,8 +328,6 @@ python -m pytest tests/ -v           # 48 passed
             A Social Practice Study on College Student Mental Health},
   author = {Emotion Pet Research Group},
   year   = {2025},
-  note   = {Best Academic Award --- Desktop Smart Pet,
-            2025 Winter Social Practice},
 }
 ```
 
