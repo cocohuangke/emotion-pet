@@ -5,7 +5,7 @@
     - 文字表情（占位表情，后续可替换为美术素材）。
 
 并据此渲染宠物贴图（程序化占位图：渐变圆脸 + 表情文字 + 精力条 +
-等级徽章）。正式美术素材替换方案见 ``assets/README.md``。
+等级徽章）。美术素材替换方案见 ``assets/README.md``。
 """
 
 from __future__ import annotations

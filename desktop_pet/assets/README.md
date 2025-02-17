@@ -1,15 +1,14 @@
 # 宠物美术素材目录（占位说明）
 
-本目录用于存放桌面宠物的**美术素材帧图**。当前项目处于骨架/演示阶段，
-**不提交真实图片素材**，宠物外观由 `desktop_pet/emotion_display.py` 在
+本目录用于存放桌面宠物的**美术素材帧图**。宠物外观由 `desktop_pet/emotion_display.py` 在
 运行时**程序化生成占位贴图**（渐变圆脸 + 文字表情 + 精力条/等级徽章）。
 
-## 预期目录结构（正式接入美术后）
+## 预期目录结构
 
 ```
 assets/
 ├── happy/
-│   ├── frame_00.png      # 情绪帧序列，命名 frame_00.png ~ frame_03.png
+│   ├── frame_00.png      # 情绪帧序列，命名 frame_00.png ~ frame_nn.png
 │   ├── frame_01.png
 │   ├── frame_02.png
 │   └── frame_03.png
