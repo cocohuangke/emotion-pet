@@ -31,6 +31,7 @@ from .dataset import (
     MockMultimodalDataset,
     MultimodalEmotionDataset,
     make_collate_fn,
+    split_dataframe,
 )
 from .models.bert_text import BertTextEncoder
 from .models.cnn_lstm_audio import CNNLSTMAudioEncoder
@@ -95,7 +96,10 @@ def build_test_loader(
     batch_size: int,
 ) -> DataLoader:
     """构造测试数据加载器（``data_path`` 为 CSV 或 mock 模式）。"""
-    collate = make_collate_fn(tokenizer=None)
+    # 真实数据评估需要 tokenizer 把字符串转为词表索引（与 train.py 同款修复）。
+    from transformers import AutoTokenizer
+    tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
+    collate = make_collate_fn(tokenizer=tokenizer, max_length=cfg.max_text_length)
     if data_path is None:
         # mock 测试集。
         test_ds: Dataset = MockMultimodalDataset(
@@ -109,9 +113,14 @@ def build_test_loader(
             raise FileNotFoundError(f"test csv not found: {csv_path}")
         import pandas as pd
 
-        df = pd.read_csv(csv_path)
+        # 用与训练相同的 split_dataframe(seed=42) 切出 test split，
+        # 保证评估在 held-out 测试集上，而非全量 labels.csv（避免数据泄露）。
+        full_df = pd.read_csv(csv_path)
+        _, _, test_df = split_dataframe(
+            full_df, train_ratio=0.8, val_ratio=0.1, test_ratio=0.1, seed=42
+        )
         test_ds = MultimodalEmotionDataset(
-            df, cfg.emotion_labels, cfg.data_root
+            test_df, cfg.emotion_labels, cfg.data_root
         )
     return DataLoader(test_ds, batch_size=batch_size, shuffle=False, collate_fn=collate)
 
@@ -122,8 +131,15 @@ def evaluate(
     loader: DataLoader,
     device: torch.device,
     emotion_labels: list,
+    modality: str = "fusion",
 ) -> dict:
     """在测试集上计算整体指标与逐类别报告。
+
+    Parameters
+    ----------
+    modality : str
+        评估模态：``"fusion"``（默认，融合）、``"text"``（仅文本）、
+        ``"audio"``（仅语音）。
 
     Returns
     -------
@@ -145,7 +161,19 @@ def evaluate(
         attention_mask = attention_mask.to(device)
         audio = audio.to(device)
 
-        logits: torch.Tensor = model(input_ids, audio, attention_mask=attention_mask)
+        if modality == "text":
+            text_logit, _ = model.forward_branch_logits(
+                input_ids, None, attention_mask=attention_mask
+            )
+            logits: torch.Tensor = text_logit
+        elif modality == "audio":
+            _, audio_logit = model.forward_branch_logits(
+                input_ids, audio, attention_mask=attention_mask
+            )
+            logits = audio_logit
+        else:  # fusion（默认）
+            logits = model(input_ids, audio, attention_mask=attention_mask)
+
         preds: torch.Tensor = logits.argmax(dim=1)
 
         all_preds.extend(preds.cpu().tolist())
@@ -180,7 +208,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--data", type=Path, default=None,
-        help="Path to test CSV (or data dir); omit to use mock test data",
+        help="Path to test CSV (or data dir); omit to auto-resolve data/raw/labels.csv",
     )
     parser.add_argument(
         "--mock", action="store_true",
@@ -190,6 +218,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--config", type=Path, default=None,
         help="Path to config yaml (used only for device preference)",
+    )
+    parser.add_argument(
+        "--modality", choices=["fusion", "text", "audio"], default="fusion",
+        help="Evaluation modality: fusion (default), text-only, or audio-only",
     )
     return parser.parse_args()
 
@@ -211,11 +243,16 @@ def main() -> None:
         f"best_acc = {meta.get('best_acc', '?')}"
     )
     print(f"[evaluate] device = {device}, emotions = {cfg.num_emotions}")
+    print(f"[evaluate] modality = {args.modality}")
+
+    # 未传 --mock 且未传 --data 时，自动指向真实数据。
+    if not args.mock and args.data is None:
+        args.data = cfg.data_root / "raw" / "labels.csv"
 
     loader: DataLoader = build_test_loader(
         cfg, None if args.mock else args.data, args.batch_size
     )
-    report: dict = evaluate(model, loader, device, cfg.emotion_labels)
+    report: dict = evaluate(model, loader, device, cfg.emotion_labels, modality=args.modality)
 
     print("\n================ Evaluation Report ================")
     print(f"  Accuracy      : {report['accuracy']:.4f}")

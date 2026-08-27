@@ -1,6 +1,6 @@
 """CNN + LSTM 语音情感编码器。
 
-对 librosa 提取的 40 维 MFCC 序列 （形状 ``(batch, time, 40)``）
+对 librosa 提取的 80 维 MFCC+delta 序列 （形状 ``(batch, time, 80)``）
 先用 1D 卷积提取局部频谱特征，再用双向 LSTM 建模时序上下文，最后取
 末帧隐状态经全连接投影为 128 维语音情感特征向量。
 
@@ -18,8 +18,8 @@ from typing import Optional
 import torch
 import torch.nn as nn
 
-# 输入 MFCC 特征维度（librosa ``n_mfcc=40``）。
-DEFAULT_MFCC_DIM: int = 40
+# 输入 MFCC 特征维度（librosa ``n_mfcc=40`` + 一阶差分 delta 40 = 80）。
+DEFAULT_MFCC_DIM: int = 80
 # 输出语音特征维度（与论文 3.2 节 ``hidden_size=128`` 对齐）。
 DEFAULT_OUTPUT_DIM: int = 128
 
@@ -30,7 +30,7 @@ class CNNLSTMAudioEncoder(nn.Module):
     Parameters
     ----------
     input_dim : int
-        输入 MFCC 特征维度（默认 40）。
+        输入 MFCC 特征维度（默认 80 = 40 静态 + 40 delta）。
     hidden_size : int
         LSTM 单向隐层维度（默认 128）。
     num_layers : int
@@ -88,14 +88,14 @@ class CNNLSTMAudioEncoder(nn.Module):
         Parameters
         ----------
         mfcc : torch.Tensor
-            MFCC 特征张量，形状 ``(batch_size, time, 40)``。
+            MFCC 特征张量，形状 ``(batch_size, time, 80)``。
 
         Returns
         -------
         torch.Tensor
             形状 ``(batch_size, 128)`` 的语音特征向量。
         """
-        # (B, T, 40) -> (B, 40, T) 以适配 Conv1d。
+        # (B, T, 80) -> (B, 80, T) 以适配 Conv1d。
         x: torch.Tensor = mfcc.transpose(1, 2)
         x = self.cnn(x)  # (B, 2*cnn_channels, T')
 
@@ -121,7 +121,7 @@ class CNNLSTMAudioEncoder(nn.Module):
 if __name__ == "__main__":
     # 快速自检：喂入随机 MFCC 序列，验证输出维度。
     encoder = CNNLSTMAudioEncoder()
-    dummy_mfcc = torch.randn(4, 100, 40)  # (batch=4, time=100, 40)
+    dummy_mfcc = torch.randn(4, 100, 80)  # (batch=4, time=100, 80)
     out: torch.Tensor = encoder(dummy_mfcc)
     print(f"[cnn_lstm_audio] output shape = {tuple(out.shape)}")  # (4, 128)
     print(f"[cnn_lstm_audio] trainable params = {encoder.trainable_parameter_count()}")

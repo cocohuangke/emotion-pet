@@ -144,12 +144,44 @@ def build_mock_loaders(
     return train_loader, val_loader
 
 
+def compute_class_weights(
+    train_df,
+    emotion_labels: list,
+) -> torch.Tensor:
+    """按反频率计算类别权重，用于处理类别不平衡。
+
+    少样本类（如 fear/disgust）获得更高权重，多样本类（如 neutral）权重更低，
+    使 ``CrossEntropyLoss`` 在不丢弃数据、不过采样的前提下自动平衡。
+    权重公式为 sklearn ``balanced`` 等价形式：``total / (n_classes * count)``。
+
+    Parameters
+    ----------
+    train_df : pandas.DataFrame
+        训练集 DataFrame，须含 ``label`` 列。
+    emotion_labels : list
+        有序标签列表，权重顺序与之对齐。
+
+    Returns
+    -------
+    torch.Tensor
+        形状 ``(n_classes,)`` 的 float32 权重张量。
+    """
+    counts = train_df["label"].value_counts()
+    total = len(train_df)
+    n_classes = len(emotion_labels)
+    weights = [
+        total / (n_classes * max(counts.get(label, 0), 1))
+        for label in emotion_labels
+    ]
+    return torch.tensor(weights, dtype=torch.float32)
+
+
 def build_real_loaders(
     cfg: ModuleConfig,
     batch_size: int,
     tokenizer: Optional[object] = None,
-) -> Tuple[DataLoader, DataLoader]:
-    """构造真实数据加载器（读取 CSV，按比例划分训练/验证）。"""
+) -> Tuple[DataLoader, DataLoader, torch.Tensor]:
+    """构造真实数据加载器（读取 CSV，按比例划分训练/验证），返回类别权重。"""
     data_root: Path = cfg.data_root
     csv_path: Path = data_root / "raw" / "labels.csv"
     if not csv_path.exists():
@@ -162,15 +194,21 @@ def build_real_loaders(
 
     df = pd.read_csv(csv_path)
     train_df, val_df, _ = split_dataframe(df, train_ratio=0.8, val_ratio=0.1, test_ratio=0.1, seed=cfg.seed)
+    class_weights = compute_class_weights(train_df, cfg.emotion_labels)
 
     from .dataset import MultimodalEmotionDataset
+
+    # 真实数据训练需要 tokenizer 把字符串转为词表索引。
+    if tokenizer is None:
+        from transformers import AutoTokenizer
+        tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
 
     collate = make_collate_fn(tokenizer=tokenizer, max_length=cfg.max_text_length)
     train_ds = MultimodalEmotionDataset(train_df, cfg.emotion_labels, data_root)
     val_ds = MultimodalEmotionDataset(val_df, cfg.emotion_labels, data_root)
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, collate_fn=collate)
     val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, collate_fn=collate)
-    return train_loader, val_loader
+    return train_loader, val_loader, class_weights
 
 
 def build_model(
@@ -228,7 +266,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--epochs", type=int, default=20, help="Number of epochs")
     parser.add_argument("--batch_size", type=int, default=16, help="Batch size")
-    parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate")
+    parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate")
     parser.add_argument(
         "--mock", action="store_true",
         help="Run with synthetic mock data (no real data / BERT weights needed)",
@@ -238,8 +276,14 @@ def parse_args() -> argparse.Namespace:
         help="Load pretrained bert-base-uncased weights (requires network/cache)",
     )
     parser.add_argument(
-        "--freeze-bert", action="store_true",
-        help="Freeze BERT backbone parameters during training",
+        "--freeze-bert", action=argparse.BooleanOptionalAction, default=True,
+        help="Freeze BERT backbone parameters during training "
+             "(default: on; pass --no-freeze-bert to fine-tune all weights)",
+    )
+    parser.add_argument(
+        "--patience", type=int, default=5,
+        help="Early-stopping patience: stop if val acc does not improve for "
+             "this many epochs (0 disables early stopping; default: 5)",
     )
     parser.add_argument(
         "--checkpoint-dir", type=Path, default=None,
@@ -266,14 +310,20 @@ def main() -> None:
     model = model.to(device)
     print(f"[train] trainable params = {model.trainable_parameter_count()}")
 
+    class_weights: Optional[torch.Tensor] = None
     if args.mock:
         train_loader, val_loader = build_mock_loaders(
             args.batch_size, cfg.num_emotions, cfg.seed
         )
     else:
-        train_loader, val_loader = build_real_loaders(cfg, args.batch_size)
+        train_loader, val_loader, class_weights = build_real_loaders(cfg, args.batch_size)
 
-    criterion: nn.Module = nn.CrossEntropyLoss()
+    if class_weights is not None:
+        class_weights = class_weights.to(device)
+        criterion: nn.Module = nn.CrossEntropyLoss(weight=class_weights)
+        print(f"[train] class weights = {class_weights.tolist()}")
+    else:
+        criterion: nn.Module = nn.CrossEntropyLoss()
     optimizer: torch.optim.Optimizer = torch.optim.Adam(
         model.parameters(), lr=args.lr
     )
@@ -282,29 +332,41 @@ def main() -> None:
         args.checkpoint_dir if args.checkpoint_dir is not None else cfg.checkpoint_root
     )
     best_acc: float = 0.0
+    patience_counter: int = 0
+    last_epoch: int = 0
 
     for epoch in range(1, args.epochs + 1):
         train_loss, train_acc = run_epoch(model, train_loader, criterion, optimizer, device)
         val_loss, val_acc = run_epoch(model, val_loader, criterion, None, device)
+        last_epoch = epoch
         print(
             f"[train] Epoch {epoch}/{args.epochs} | "
             f"train loss={train_loss:.4f} acc={train_acc:.4f} | "
             f"val loss={val_loss:.4f} acc={val_acc:.4f}"
         )
 
-        # 验证集准确率提升时保存最佳模型。
+        # 验证集准确率提升时保存最佳模型，并重置早停计数。
         if val_acc > best_acc:
             best_acc = val_acc
+            patience_counter = 0
             save_checkpoint(
                 checkpoint_dir / "best_model.pt",
                 model, optimizer, epoch, best_acc, cfg,
                 extra={"use_pretrained_bert": use_pretrained},
             )
+        else:
+            patience_counter += 1
+            if args.patience > 0 and patience_counter >= args.patience:
+                print(
+                    f"[train] early stopping at epoch {epoch} "
+                    f"(no val-acc improvement for {args.patience} epochs)"
+                )
+                break
 
     # 训练结束保存最后一个 checkpoint，便于断点续训。
     save_checkpoint(
         checkpoint_dir / "last_model.pt",
-        model, optimizer, args.epochs, best_acc, cfg,
+        model, optimizer, last_epoch, best_acc, cfg,
         extra={"use_pretrained_bert": use_pretrained},
     )
     print(f"[train] done. best val acc = {best_acc:.4f}")

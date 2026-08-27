@@ -51,8 +51,8 @@ class TestCNNLSTMAudioEncoder:
         from emotion_recognition.models.cnn_lstm_audio import CNNLSTMAudioEncoder
 
         encoder = CNNLSTMAudioEncoder()
-        # (batch, time, mfcc_dim=40)
-        audio = torch.randn(4, 100, 40)
+        # (batch, time, mfcc_dim=80)
+        audio = torch.randn(4, 100, 80)
         out = encoder(audio)
         assert out.shape[0] == 4
         assert out.shape[1] == 128  # 输出维度
@@ -93,7 +93,7 @@ class TestMultimodalFusionModel:
         )
         input_ids = torch.randint(0, 30522, (4, 32))
         mask = torch.ones(4, 32, dtype=torch.long)
-        audio = torch.randn(4, 100, 40)
+        audio = torch.randn(4, 100, 80)
         logits = model(input_ids, audio_input=audio, attention_mask=mask)
         assert logits.shape == (4, 7)
 

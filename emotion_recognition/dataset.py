@@ -43,17 +43,20 @@ def extract_mfcc(
     sr: int = 16000,
     max_frames: int = DEFAULT_MAX_AUDIO_FRAMES,
 ) -> np.ndarray:
-    """从音频文件提取 MFCC 特征。
+    """从音频文件提取 MFCC 特征（含一阶差分 delta + 标准化）。
+
+    输出为静态 MFCC 与一阶差分 delta 的拼接，形状 ``(frames, n_mfcc * 2)``，
+    并对每个特征维度做零均值单位方差标准化（CMVN），提升训练稳定性。
 
     若 librosa / soundfile 不可用，或文件不存在、解码失败，则返回全零矩阵，
-    保证调用方拿到形状确定的 ``(frames, n_mfcc)`` 张量。
+    保证调用方拿到形状确定的 ``(frames, n_mfcc * 2)`` 张量。
 
     Parameters
     ----------
     audio_path : Path
         音频文件路径。
     n_mfcc : int
-        MFCC 系数个数。
+        静态 MFCC 系数个数（输出维度为 ``n_mfcc * 2``，含 delta）。
     sr : int
         重采样目标采样率。
     max_frames : int
@@ -62,31 +65,50 @@ def extract_mfcc(
     Returns
     -------
     np.ndarray
-        形状 ``(frames, n_mfcc)`` 的 MFCC 特征。
+        形状 ``(frames, n_mfcc * 2)`` 的 MFCC + delta 特征（已标准化）。
     """
+    out_dim: int = n_mfcc * 2
+
     if not audio_path.exists():
-        # 音频缺失 -> 返回全零占位，维度仍保持 (max_frames, n_mfcc)。
-        return np.zeros((max_frames, n_mfcc), dtype=np.float32)
+        # 音频缺失 -> 返回全零占位，维度仍保持 (max_frames, n_mfcc*2)。
+        return np.zeros((max_frames, out_dim), dtype=np.float32)
 
     try:
         import librosa
     except ImportError:
         # librosa 未安装 -> 全零占位。
-        return np.zeros((max_frames, n_mfcc), dtype=np.float32)
+        return np.zeros((max_frames, out_dim), dtype=np.float32)
 
     try:
         # 加载并重采样到目标采样率。
         y, sr_actual = librosa.load(str(audio_path), sr=sr)
-        # 提取 MFCC，输出形状 (n_mfcc, frames)。
+        # 提取静态 MFCC，输出形状 (n_mfcc, frames)。
         mfcc: np.ndarray = librosa.feature.mfcc(y=y, sr=sr_actual, n_mfcc=n_mfcc)
-        mfcc = mfcc.T  # (frames, n_mfcc)
+        # 一阶差分 delta：捕获 MFCC 随时间的变化（动态特征），与静态系数拼接。
+        # librosa.feature.delta 默认 width=9，要求时间维(帧数) >= 9；极短音频会抛
+        # ParameterError。这里对帧数 < 9 的短音频做边缘 pad 到 9 帧再算 delta。
+        n_frames: int = mfcc.shape[1]
+        if n_frames < 9:
+            mfcc_pad: np.ndarray = np.pad(
+                mfcc, ((0, 0), (0, 9 - n_frames)), mode="edge"
+            )
+            delta = librosa.feature.delta(mfcc_pad)[:, :n_frames]
+        else:
+            delta = librosa.feature.delta(mfcc)
+        feats: np.ndarray = np.concatenate([mfcc, delta], axis=0)  # (2*n_mfcc, frames)
+        feats = feats.T  # (frames, 2*n_mfcc)
     except Exception:
         # 解码失败等异常 -> 全零占位。
-        return np.zeros((max_frames, n_mfcc), dtype=np.float32)
+        return np.zeros((max_frames, out_dim), dtype=np.float32)
 
-    if mfcc.shape[0] > max_frames:
-        mfcc = mfcc[:max_frames, :]
-    return mfcc.astype(np.float32)
+    # CMVN 标准化：沿时间维对每个特征维度做零均值单位方差（避免数值尺度差异）。
+    mean: np.ndarray = feats.mean(axis=0, keepdims=True)
+    std: np.ndarray = feats.std(axis=0, keepdims=True) + 1e-6
+    feats = (feats - mean) / std
+
+    if feats.shape[0] > max_frames:
+        feats = feats[:max_frames, :]
+    return feats.astype(np.float32)
 
 
 class MultimodalEmotionDataset(Dataset):
@@ -129,10 +151,32 @@ class MultimodalEmotionDataset(Dataset):
         }
 
         # 过滤标签缺失或非法的行，构造干净的内部表。
+        # 注意：只 drop 标签列的 NaN，保留空文本（音频-only 行 text 为空字符串）。
+        # pandas read_csv 会把空字符串读成 NaN，这里 fillna 还原为 ""，
+        # 让音频-only 行也能进入训练/评估，避免 70% 数据被丢弃。
         df: pd.DataFrame = dataframe.copy()
-        df = df.dropna(subset=[TEXT_COLUMN, LABEL_COLUMN])
+        df[TEXT_COLUMN] = df[TEXT_COLUMN].fillna("")
+        df[AUDIO_PATH_COLUMN] = df[AUDIO_PATH_COLUMN].fillna("")
+        df = df.dropna(subset=[LABEL_COLUMN])
         df = df[df[LABEL_COLUMN].isin(self.emotion_labels)]
         self.df: pd.DataFrame = df.reset_index(drop=True)
+
+        # 加载预提取的 MFCC 内存缓存(如存在),避免每次 __getitem__ 现场重算。
+        self._mfcc_cache: Dict[str, np.ndarray] = self._load_mfcc_cache()
+
+    def _load_mfcc_cache(self) -> Dict[str, np.ndarray]:
+        """从磁盘加载预提取的 MFCC 缓存(键 = audio_rel 路径字符串)。
+
+        缓存文件由 scripts/precompute_mfcc.py 生成。MFCC 是确定性特征,
+        只要音频文件不变,缓存永远有效(与标签 / 采样 / split 无关)。
+        """
+        import pickle
+
+        cache_path: Path = self.data_root / "raw" / "mfcc_cache.pkl"
+        if not cache_path.exists():
+            return {}
+        with open(cache_path, "rb") as f:
+            return pickle.load(f)
 
     def __len__(self) -> int:
         """返回样本数量。"""
@@ -145,7 +189,7 @@ class MultimodalEmotionDataset(Dataset):
         -------
         Tuple[Any, torch.Tensor, int]
             ``text`` 为原始字符串（或 tokenize 后的索引列表），
-            ``audio_mfcc`` 为 ``(frames, 40)`` 的浮点张量，
+            ``audio_mfcc`` 为 ``(frames, 2*n_mfcc)`` 的浮点张量，
             ``label`` 为情绪类别索引。
         """
         row: pd.Series = self.df.iloc[idx]
@@ -155,10 +199,15 @@ class MultimodalEmotionDataset(Dataset):
             text = self.tokenize(text)
 
         audio_rel: str = str(row[AUDIO_PATH_COLUMN])
-        audio_path: Path = self.data_root / audio_rel
-        mfcc: np.ndarray = extract_mfcc(
-            audio_path, n_mfcc=self.n_mfcc, max_frames=self.max_audio_frames
-        )
+        if audio_rel in self._mfcc_cache:
+            # 命中预提取缓存:直接读内存,不重复计算。
+            mfcc: np.ndarray = self._mfcc_cache[audio_rel]
+        else:
+            # 未命中(无缓存或缓存缺失):现场提取,保证兼容。
+            audio_path: Path = self.data_root / audio_rel
+            mfcc = extract_mfcc(
+                audio_path, n_mfcc=self.n_mfcc, max_frames=self.max_audio_frames
+            )
         audio_tensor: torch.Tensor = torch.from_numpy(mfcc)
 
         label: int = self.label_to_index[str(row[LABEL_COLUMN])]
@@ -321,8 +370,8 @@ class MockMultimodalDataset(Dataset):
         token_ids: List[int] = [
             random.randint(1, self.vocab_size - 1) for _ in range(self.seq_len)
         ]
-        # 音频：标准正态随机 MFCC。
-        mfcc: torch.Tensor = torch.randn(self.mfcc_frames, DEFAULT_N_MFCC)
+        # 音频：标准正态随机 MFCC（含 delta，维度 2*n_mfcc）。
+        mfcc: torch.Tensor = torch.randn(self.mfcc_frames, DEFAULT_N_MFCC * 2)
         label: int = self.labels[idx]
         return token_ids, mfcc, label
 
@@ -351,7 +400,7 @@ def make_collate_fn(
             [item[2] for item in batch], dtype=torch.long
         )
 
-        # 音频 padding：按最长帧数对齐 -> (B, T_max, 40)。
+        # 音频 padding：按最长帧数对齐 -> (B, T_max, 2*n_mfcc)。
         audio_batch: torch.Tensor = pad_sequence(audios, batch_first=True)
 
         if tokenizer is not None:
