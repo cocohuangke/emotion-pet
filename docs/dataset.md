@@ -1,148 +1,69 @@
 # 数据集
 
-> 本文档说明 Emotion Pet 使用的情感识别数据集、标签映射、预处理流程、下载方式与伦理规范。
+> 本文档说明 Emotion Pet 使用的情感识别数据集、标签映射、预处理流程、获取方式与伦理规范。
 
 ---
 
 ## 数据集总览
 
-项目采用多模态数据策略，覆盖文本、语音两个通道，目标用户为中文大学生群体。
+项目最终采用 **MELD（Multimodal EmotionLines Dataset）** 作为唯一训练数据集。
 
-考虑到本项目为本科生的假期实践项目，核心目标是**跑通完整端到端管线并验证情感识别能力**，训练需在免费 Colab GPU 上约 20 分钟内完成，因此对数据规模做了精简：从最初调研的 8 个数据集（~16 万行）收敛到 **5 个数据集、约 7,400 行**，剔除与项目目标不匹配的 SST-2（二元情感噪声）、RAVDESS Song（唱歌≠说话情感）、MELD（FLAC 转换瓶颈、ROI 低）。
+MELD 是 CMU Poria 团队于 ACL 2019 发布的多模态对话情感数据集，基于美剧《老友记》(Friends)。每一句台词同时提供**文本转录 + 语音音频 + 视频画面**，天然 text+audio 对齐，适合多模态情感识别。
 
-### 精简方案选型
+| 属性 | 值 |
+|------|-----|
+| 模态 | 文本 + 语音（+ 视频，本项目不使用） |
+| 语言 | 英文 |
+| 原始规模 | 13,708 条（train 9,989 / dev 1,109 / test 2,610） |
+| 本项目使用 | 13,706 条（对齐音频后，缺失 2 个音频文件） |
+| 标签 | 7 类：neutral / joy / sadness / anger / surprise / fear / disgust |
+| 音频格式 | FLAC（从原视频音轨提取） |
+| 许可证 | CC BY-NC-SA 4.0（非商用） |
 
-| 数据集 | 模态 | 规模 | 标签 | 语言 | 采样率 | 许可证 | 用途 |
-|--------|------|------|------|------|--------|--------|------|
-| GoEmotions | 文本 | 3,000（子采样） | 27 类 → 7 类 | 英文 | — | Apache-2.0 | 英文文本分支训练 |
-| ESD（中文子集） | 文本 + 语音 | 1,500（子采样） | 5 类 | 中文 | 16kHz/mono/16-bit | 研究用途（需签协议） | 中文文本 + 中文语音（配对） |
-| RAVDESS Speech | 语音 | 1,440 | 8 类 → 7 类 | 英文 | 48kHz → 16kHz | CC BY-NC-SA 4.0 | 英文语音训练 |
-| CASIA | 语音 | 1,200 | 6 类（无 disgust） | 中文 | 16kHz/mono/16-bit | 研究免费（HF 镜像） | 中文语音主训练集 |
-| EMO-DB | 语音 | 304 | 7 类 | 德文 | 16kHz/mono/16-bit | 研究免费 | 补充 fear/disgust |
-| **合计** | — | **~7,444** | **7 类** | 中英德 | — | — | — |
+### 选型过程：从多数据集收敛到 MELD
 
-### 剔除的数据集及原因
+项目早期尝试过「多数据集拼接」方案（GoEmotions 文本 + RAVDESS/CASIA/EMO-DB/ESD 语音，约 7,400 行），实践中暴露出两个难以克服的问题：
 
-| 数据集 | 剔除原因 |
-|--------|----------|
-| SST-2 | 二元情感（pos/neg）强行映射成 happy/sad，对 7 类任务是噪声；67k 行占比过大，淹没细粒度信号 |
-| RAVDESS Song | 唱歌情感与说话情感特征差异大，不能直接迁移；增量小（1,012 行）ROI 低 |
-| MELD | 13,847 个 FLAC 文件转换 WAV 耗时超 30 分钟（超时 3 次），HF 镜像 CSV 还被截断；视频原始数据 10.8GB 不可用 |
-| IEMOCAP | 需 Google Form 申请 + 3-5 天审批 + 学术邮箱，许可证限制严格，仍为 acted 英文数据，不填补中文缺口 |
+1. **文本与语音不对齐**：GoEmotions 是纯文本，RAVDESS/CASIA/EMO-DB 是纯语音，ESD 虽提供中文配对但子采样后类别缺失。多模态融合训练时，文本与语音来自**不同样本**，模型无法学习真正的跨模态对应关系。
+2. **语言混杂**：中英德三语混合，跨语言泛化损失大，且中文数据量不足以支撑目标用户群体。
 
-来源：
+MELD 一次性解决上述问题：
 
-- GoEmotions: https://github.com/google-research/google-research/tree/master/goemotions
-- RAVDESS: https://zenodo.org/record/1188976
-- EMO-DB: http://emodb.bilderbar.info/download/download.zip
-- CASIA: https://hf-mirror.com/datasets/BillyLin/CASIA_speech_emotion_recognition_preload
-- ESD: https://hf-mirror.com/datasets/jspaulsen/esd
+- **text+audio 严格对齐**（同一句台词）；
+- **单一语言**（英文），BERT uncased 无语言不匹配问题；
+- **官方 train/dev/test 划分**，含真实分布的不平衡（更贴近真实场景）；
+- **7 类标签天然对齐**，无需复杂映射。
 
----
+### 类别分布（不平衡，代表真实对话分布）
 
-## 中文数据集选型说明
+| 类别 | train | dev | test | 合计 |
+|------|-------|-----|------|------|
+| neutral | 4,710 | 470 | 1,256 | 6,434 |
+| joy → happy | 1,743 | 163 | 402 | 2,308 |
+| surprise | 1,205 | 150 | 281 | 1,636 |
+| anger | 1,109 | 153 | 345 | 1,607 |
+| sadness → sad | 683 | 111 | 208 | 1,002 |
+| disgust | 271 | 22 | 68 | 361 |
+| fear | 268 | 40 | 50 | 358 |
 
-项目目标用户是中文大学生，语音分支需要中文情感数据。选择 CASIA + ESD 中文子集的理由：
-
-**CASIA 中文情感语音库**
-
-- 中科院自动化所录制，6 种情感（anger/fear/happy/neutral/sad/surprise），与项目目标标签高度对齐
-- 16kHz/16-bit/mono 采样，棚录高质量数据
-- 4 位说话人，共 1,200 条
-- HuggingFace 镜像可免费获取，商用需向 chineseldc.org 购买正式版
-- 缺点：规模较小（1,200 条），说话人少（4 人），无 disgust 类别
-
-**ESD（Emotional Speech Dataset）中文子集**
-
-- 5 种情感（anger/happiness/neutral/sadness/surprise），无 fear 和 disgust
-- 10 位中文说话人 + 10 位英文说话人（同一批人双语录制）
-- 中文子集原始约 17,500 条，本项目子采样到 1,500 条（每类 300）
-- 16kHz/16-bit/mono
-- 研究用途，需签署数据使用协议
-- 优点：**同时提供中文语音和对应的中文文本转录**，是唯一能做文本+语音配对训练的中文数据集
-- 缺点：缺少 fear/disgust 两个类别
-
-**互补策略**
-
-- fear/disgust 主要由 EMO-DB 补充（disgust 20 条、anxiety→fear 36 条）和 RAVDESS 补充
-- CASIA 的 6 类 + ESD 的 5 类 + EMO-DB 的 7 类 + RAVDESS 的 8 类 → 项目 7 类全覆盖
-- 中文数据共 2,700 条（CASIA 1,200 + ESD 1,500），约占总量 36%
+> neutral 约占 47%，fear/disgust 各约 2.6%，相差约 17 倍。
+> 为缓解类别不平衡，训练时采用**反频率类别加权损失**（fear/disgust 高权重、neutral 低权重），而非下采样丢弃数据。
 
 ---
 
 ## 标签体系
 
-项目使用 7 类情感标签，对齐 config.yaml 设定：
+MELD 原始 7 类标签仅需两处重命名即可对齐 config.yaml 的 `emotion_labels`：
 
-```
-happy, sad, angry, fear, surprise, disgust, neutral
-```
-
-各数据集原始标签需映射到统一体系。
-
-### GoEmotions（27 类 → 7 类）
-
-| 原始标签 | 映射目标 |
-|----------|----------|
-| joy, amusement, excitement, gratification, optimism, relief, pride, admiration, love, desire, anticipation | → happy |
-| sadness, grief, disappointment, remorse, embarrassment | → sad |
-| anger, annoyance, rage | → angry |
-| fear, nervousness | → fear |
-| surprise (startle, surprise) | → surprise |
-| disgust | → disgust |
-| neutral | → neutral |
-
-### RAVDESS Speech
-
-| 原始标签 | 映射目标 |
-|----------|----------|
-| angry | → angry |
-| fearful | → fear |
-| disgust | → disgust |
-| sad | → sad |
-| surprised | → surprise |
-| happy | → happy |
-| calm | → neutral |
-| neutral | → neutral |
-
-### EMO-DB（文件名第 5 字符为情感字母）
-
-| 字母 | 德语 | 映射目标 |
-|------|------|----------|
-| W | Wut (anger) | → angry |
-| L | Langeweile (boredom) | → neutral |
-| E | Ekel (disgust) | → disgust |
-| A | Angst (fear) | → fear |
-| F | Freude (joy) | → happy |
-| T | Trauer (sadness) | → sad |
-| N | Neutral | → neutral |
-
-> 注：boredom（L）映射到 neutral，因为项目无独立 boredom 类别。
-
-### CASIA
-
-| 原始标签 | 映射目标 |
-|----------|----------|
-| anger | → angry |
-| fear | → fear |
-| happy | → happy |
-| neutral | → neutral |
-| sad | → sad |
-| surprise | → surprise |
-
-> 注：CASIA 无 disgust 类别。
-
-### ESD
-
-| 原始标签 | 映射目标 |
-|----------|----------|
-| anger | → angry |
-| happiness | → happy |
-| neutral | → neutral |
-| sadness | → sad |
-| surprise | → surprise |
-
-> 注：ESD 无 fear 和 disgust 类别。
+| MELD 原始 | 项目标签 |
+|-----------|----------|
+| joy | happy |
+| sadness | sad |
+| neutral | neutral |
+| anger | angry |
+| surprise | surprise |
+| fear | fear |
+| disgust | disgust |
 
 ---
 
@@ -151,111 +72,52 @@ happy, sad, angry, fear, surprise, disgust, neutral
 ### 文本数据
 
 ```
-原始文本
+原始英文台词
     │
     ▼
-清洗：去 HTML 标签、特殊字符、URL
+BERT Tokenizer（bert-base-uncased）
     │
     ▼
-分词：BERT Tokenizer
-  ├── 英文文本 (GoEmotions) → bert-base-uncased
-  └── 中文文本 (ESD 转录) → bert-base-chinese
+截断/填充：max_length = 64
     │
     ▼
-截断/填充：max_length = 128
-    │
-    ▼
-输出：input_ids, attention_mask, token_type_ids
-    │
-    ▼
-保存：data/processed/text/train.pt, val.pt, test.pt
+输出：input_ids, attention_mask
 ```
-
-> 决策说明：GoEmotions 为英文，ESD 中文子集提供中文转录，因此文本分支同时存在中英两种语言。使用 `bert-base-chinese` 作为文本分支主模型（中文是目标用户语言），英文文本通过 tokenizer 自动处理。
 
 ### 语音数据
 
 ```
-原始音频 (.wav)
+原始音频（.flac）
     │
     ▼
-重采样：16kHz, 单声道 (librosa.load)
-  ├── RAVDESS: 48kHz → 16kHz (需重采样)
-  ├── EMO-DB: 已是 16kHz (跳过)
-  ├── CASIA: 已是 16kHz (跳过)
-  └── ESD: 已是 16kHz (跳过)
+重采样：16kHz 单声道（librosa.load）
     │
     ▼
-特征提取：
-  ├── MFCC: 40 维, 帧长 25ms, 帧移 10ms
-  └── Mel 频谱: 128 维
+特征提取：MFCC 40 维（帧长 25ms，帧移 10ms）
     │
     ▼
-归一化：CMVN (均值方差归一化)
+一阶差分：delta 40 维 → 拼接为 80 维
     │
     ▼
-对齐/截断：固定长度 3 秒 (pad/truncate)
+标准化：CMVN（均值方差归一化，沿时间维）
     │
     ▼
-输出：feature tensor [1, 128, T]
+对齐/截断：固定 300 帧（超长截断、短音频边缘填充）
     │
     ▼
-保存：data/processed/audio/train.pt, val.pt, test.pt
+输出：feature tensor (300, 80)
 ```
+
+### 加速：MFCC 预提取缓存
+
+- `scripts/precompute_mfcc.py`：多线程预提取所有唯一音频的 MFCC，写入 `data/raw/mfcc_cache.pkl`（约 427MB）。
+- `dataset.py` 的 `__getitem__` 命中缓存后直接读内存，训练数据加载从 20+ 分钟降到秒级。
 
 ---
 
 ## 数据划分
 
-| 数据集 | 划分策略 |
-|--------|----------|
-| GoEmotions | 官方 train/dev/test，子采样仅从 train 取 3,000 |
-| RAVDESS Speech | 按说话人划分（speaker-independent split） |
-| EMO-DB | 按说话人划分（10 actors） |
-| CASIA | 按说话人划分（4 speakers，说话人少需谨慎） |
-| ESD | 按说话人划分（10 Chinese speakers） |
-
-```
-data/
-├── raw/
-│   ├── text/
-│   │   ├── train.csv
-│   │   ├── val.csv
-│   │   └── test.csv
-│   ├── audio/
-│   │   ├── train/
-│   │   ├── val/
-│   │   └── test/
-│   └── labels.csv
-└── processed/
-    ├── text/
-    │   ├── train.pt
-    │   ├── val.pt
-    │   └── test.pt
-    └── audio/
-        ├── train.pt
-        ├── val.pt
-        └── test.pt
-```
-
-语音数据集统一按说话人划分，避免同一说话人的数据同时出现在 train 和 test，防止说话人特征泄露。
-
----
-
-## 数据集统计
-
-> 以下为精简方案的实际使用规模。
-
-| 数据集 | 原始规模 | 本项目使用 | 语言 | 模态 | 划分策略 |
-|--------|----------|-----------|------|------|----------|
-| GoEmotions | 43,410 train | 3,000（子采样） | 英文 | 文本 | 官方 train 子集 |
-| ESD（中文） | ~17,500 | 1,500（子采样） | 中文 | 文本 + 语音 | 按说话人划分 |
-| RAVDESS Speech | 1,440 | 1,440 | 英文 | 语音 | 按说话人划分 |
-| CASIA | 1,200 | 1,200 | 中文 | 语音 | 按说话人划分 |
-| EMO-DB | 535 | 304* | 德文 | 语音 | 按说话人划分 |
-| **合计** | — | **~7,444** | **中英德** | — | — |
-
-> *EMO-DB 完整版 535 条，本项目使用的 HF 镜像 `confit/emodb-parquet` 仅含 304 条（shard 0），差异源于镜像只导出了部分数据。304 条已覆盖 7 类情感，足以补充 fear/disgust 稀疏类别。
+MELD 官方提供 train/dev/test 划分。本项目训练时对 train 集再做 8:1:1 分层切分（`split_dataframe`，seed=42），评估在独立 test 集上进行，避免数据泄露。
 
 ---
 
@@ -263,7 +125,7 @@ data/
 
 ### 问题
 
-外语数据训练的语音情感模型用于中文用户时，准确率会大幅下降。
+MELD 为英文数据集，而目标用户是中文大学生。外语数据训练的语音情感模型用于中文用户时，准确率会下降。
 
 已有研究结论：
 
@@ -275,105 +137,81 @@ data/
 1. **韵律是语言特定的**。arousal（唤醒度）可跨语言迁移，valence（效价）下降严重
 2. **普通话声调干扰**。音高同时承载词汇声调（四声）和情感韵律，模型容易混淆
 3. **acted vs natural 不匹配**。实验室录制与自然表达差距大
-4. **语料库特定不匹配**。录音条件、说话人、标注文化差异
 
-### 本项目的对策
+### 本项目的处境与对策
 
-1. **引入中文数据**（已采纳）：CASIA 1,200 + ESD 1,500 = 2,700 条中文语音。研究显示 160 秒目标语言数据可提升 +15.6% WA（Tang 2023）。
-2. **多语言拼接训练**：中英德三语数据联合训练，优于单源 zero-shot。
-3. **按说话人划分**：防止说话人特征泄露，更贴近真实泛化场景。
+- **文本分支**：BERT uncased 对英文文本建模充分，文本情感识别不受语言迁移影响；
+- **语音分支**：英文语音训练的 CNN+LSTM 对中文语音存在跨语言下降，这是已知局限；
+- **实验观察**：当前消融结果（语音分支 test acc 0.0773，低于随机基线 0.14）表明语音分支本身尚未学好，跨语言问题叠加从零训练的欠拟合，是下一步改进方向。
 
 ### 局限性承认
 
-即便引入中文数据，跨语言泛化仍存在上限。本项目作为本科实践项目，接受这一局限：
+本项目作为本科实践项目，接受这一局限：
 
-- 训练集以英文为主（RAVDESS 1,440 + GoEmotions 3,000 = 4,440 英文行 vs 2,700 中文行）
-- 测试用户为中文大学生，预期中文语音识别准确率低于英文
+- 训练数据为英文（MELD），测试用户为中文大学生，预期中文语音识别准确率低于英文
 - 这一差距本身就是实验报告的重要观察点
 
 ---
 
 ## 模型架构
 
-当前架构：BERT（text）+ CNN+LSTM（audio）→ 7-class fused logits。
+当前架构：BERT（text）+ CNN+LSTM（audio）→ 特征层拼接融合 → 7 类。
 
 ### 文本分支
 
-- 使用 `bert-base-chinese` 作为主模型（目标用户为中文大学生）
-- 英文文本（GoEmotions）通过同一 tokenizer 处理
-- 输入：text → tokenize → BERT → [CLS] → FC → 7-class logits
+- 使用 `bert-base-uncased`（与 MELD 英文数据匹配）
+- 骨干冻结（仅训练分类头），避免 1 万级样本上的过拟合
+- 输入：text → tokenize → BERT → [CLS] pooler（768 维）
 
 ### 语音分支
 
 - **CNN+LSTM 从零训练**（不从外部加载预训练 SER 模型）
-- 输入：Mel 频谱（128 维）→ Conv2D（3 层，[64, 128, 256]）→ BiLSTM（2 层，hidden=128）→ FC → 7-class logits
+- 输入：80 维 MFCC（40 静态 + 40 delta）→ Conv1d（64→128）→ BiLSTM（2 层，hidden=128）→ FC → 128 维特征
 - 设计理由：项目核心目标之一是**学习并展示 CNN+LSTM 在 SER 任务上的从零训练能力**，直接使用 emotion2vec+ 等预训练模型相当于"调用 API"，失去教育价值
-- 预期：作为 baseline，在 RAVDESS+CASIA+EMO-DB+ESD 上训练 20 epochs，观察收敛情况
 
 ### 融合层
 
-- 对文本和语音分支的隐层表示做注意力加权拼接，输出最终情感分布
+- 文本特征（768 维）+ 语音特征（128 维）在特征维拼接为 896 维 → MLP（896 → 256 → 7）→ 情感分布
+- 保留 `text_fc` / `audio_fc` 单模态分类头，用于消融实验
 
 ### 未来改进方向（不在当前实现范围内）
 
-若 baseline CNN+LSTM 效果不理想，可考虑：
-
-- **emotion2vec+**（阿里巴巴达摩院，ACL 2024）：中文原生 SER 基础模型，训练数据 42,526 小时，9 类输出与项目 7 类兼容。免费获取：ModelScope / HuggingFace `emotion2vec/emotion2vec_plus_large`。使用方式：(a) 直接作为分类器 fine-tune；(b) 作为特征提取器替代 Mel 频谱输入 CNN+LSTM。
-- **wav2vec2 / HuBERT / WavLM**：通用 SSL 语音预训练模型，可减少跨语言下降。
-- **领域自适应**（DANN / CAAM）：+10-15pt 提升。
-
-> 以上均为后续迭代方向，当前版本聚焦 CNN+LSTM baseline。
+- **语音分支退化**（当前 test acc 0.0773 < 随机基线 0.14）是首要改进点，方向：
+  - **wav2vec2 / HuBERT / WavLM**：通用 SSL 语音预训练模型，可减少跨语言下降；
+  - **emotion2vec+**（阿里巴巴达摩院，ACL 2024）：中文原生 SER 基础模型，9 类输出与项目 7 类兼容；
+  - **领域自适应**（DANN / CAAM）：+10-15pt 提升。
+- **fear/disgust 少数类**：可尝试 focal loss 或数据增强。
 
 ---
 
 ## 备选数据集
 
-以下数据集不自动下载，仅作参考。
+以下数据集经调研后未采用，仅作参考。
 
 | 数据集 | 说明 | 为何不采用 |
 |--------|------|-----------|
-| SST-2 | 67k 二元情感 | 已剔除：二元 pos/neg 映射成 happy/sad 是噪声 |
-| RAVDESS Song | 1,012 唱歌情感 | 已剔除：唱歌情感≠说话情感 |
-| MELD | 9,989+1,109+2,610 | 已剔除：FLAC 转换超时，CSV 镜像截断 |
-| IEMOCAP | 10,039 turns, 12h, 6 类, 英文 | 需 Google Form 申请 + 3-5 天审批 + 学术邮箱；仍为 acted 数据；不填补中文缺口。**可选/可跳过** |
-| CHEAVD 2.0 | 238 说话人, 8 类, 中文自然 | 影视采集，含背景噪声；CASIA/ESD 已够用 |
-| M3ED | 626 说话人, 7 类, 中文 TV | ACL 2022，百度云分发，流程繁琐 |
-| EmotionTalk | 19 说话人, 7 类, 中文 | HF gated（需 token + 协议），无法自动下载 |
-| EmoDialogCN | 119 说话人, 18 类, 400h | 2025 新发布，类别过多需重映射 |
-| MER2023/2024 | 5,030 标注 + 115k 未标注 | HF gated + EULA，仅学术 |
-| CH-SIMS | 5 类 sentiment | 标签为 sentiment（极性）而非离散情感，无法替代分类 SER |
-| AISHELL-3 | 中文 TTS 语料 | 无情感标签，不可用于 SER |
+| GoEmotions | 58k 英文文本，27 类 | 纯文本，无配对音频，无法做多模态对齐 |
+| RAVDESS Speech | 1,440 英文语音，8 类 | 纯语音，无文本转录 |
+| CASIA | 1,200 中文语音，6 类 | 纯语音，无文本；无 disgust 类 |
+| EMO-DB | 535 德文语音，7 类 | 纯语音；德文跨语言下降大 |
+| ESD | 中英双语语音+转录 | 需签协议；子采样后类别缺失 |
+| IEMOCAP | 10,039 条英文多模态 | 需申请 + 审批；仍为 acted 数据 |
+| SST-2 | 67k 二元情感 | 二元 pos/neg 映射成 happy/sad 是噪声 |
+| CHEAVD 2.0 / M3ED / EmoDialogCN | 中文影视/自然 | 获取流程繁琐，或类别过多需重映射 |
 
-> 注：IEMOCAP 虽为经典 SER 数据集，但申请流程长且许可证限制严格（不得再分发、不得商用、需咨询 USC 后方可公开报告性能）。本项目数据规模已够用，暂不纳入。
+> 早期「5 数据集拼接」方案（GoEmotions + RAVDESS + CASIA + EMO-DB + ESD，约 7,400 行）因文本语音不对齐、语言混杂而被 MELD 取代，记录于此作为选型过程的一部分。
 
 ---
 
-## 下载命令
+## 获取方式
 
-以下命令供 `scripts/download_data.py` 参考，所有 URL 已验证。
+MELD 的获取需要一定流程（非一键下载）：
 
-```bash
-# 0. 国内网络准备 (PowerShell)
-$env:HF_ENDPOINT = "https://hf-mirror.com"
+1. **CSV 标签**：官方 GitHub `declare-lab/MELD` 提供 train/dev/test 的 CSV（含文本转录、情绪标签、说话人、剧集信息）。
+2. **音频**：需从《老友记》视频提取（视频受版权保护，需自行获取；每句台词对应一段音轨，转存为 FLAC/WAV）。
+3. **本项目已准备好预处理数据**：`data/raw/meld_csv/{meld_train,meld_dev,meld_test}.csv` + `data/raw/meld_audio/{train,dev,test}/`（13,847 个 FLAC）。复现时只需将 `labels.csv`（13,706 行，text/audio_path/label 三列）与 `meld_audio/` 放到 `data/raw/` 下。
 
-# 1. GoEmotions (通过 HF datasets, simplified 配置去 PII)
-python -c "from datasets import load_dataset; load_dataset('google-research-datasets/go_emotions', 'simplified')"
-
-# 2. RAVDESS Speech (HF 镜像 parquet, 2 shards)
-curl.exe -L -o ravdess_0.parquet "https://hf-mirror.com/api/datasets/xbgoose/ravdess/parquet/default/train/0.parquet"
-curl.exe -L -o ravdess_1.parquet "https://hf-mirror.com/api/datasets/xbgoose/ravdess/parquet/default/train/1.parquet"
-
-# 3. EMO-DB (HF 镜像 parquet, 1 shard, 304 rows)
-curl.exe -L -o emodb_0.parquet "https://hf-mirror.com/api/datasets/confit/emodb-parquet/parquet/default/train/0.parquet"
-
-# 4. CASIA (HF 镜像 parquet, 12 shards, ~71MB)
-0..11 | ForEach-Object { curl.exe -L -o "casia_$_.parquet" "https://hf-mirror.com/api/datasets/BillyLin/CASIA_speech_emotion_recognition_preload/parquet/default/train/$_.parquet" }
-
-# 5. ESD (HF 镜像 parquet, 7 shards, ~3.3GB)
-0..6 | ForEach-Object { curl.exe -L -o "esd_$_.parquet" "https://hf-mirror.com/api/datasets/jspaulsen/esd/parquet/default/train/$_.parquet" }
-```
-
-> 一键下载：`python scripts/download_data.py --dataset all --target ./data/raw`
+> HuggingFace 上存在 MELD 的镜像仓库（含音频），可作为替代获取渠道，但不同镜像的字段与完整性不一，本项目未采用镜像加载。
 
 ---
 
@@ -388,7 +226,7 @@ curl.exe -L -o emodb_0.parquet "https://hf-mirror.com/api/datasets/confit/emodb-
 
 ### 本项目的数据策略
 
-- **训练数据**：全部使用公开数据集（GoEmotions、RAVDESS、EMO-DB、CASIA、ESD），不涉及真实用户数据
+- **训练数据**：使用公开数据集 MELD（CC BY-NC-SA 4.0，非商用），不涉及真实用户数据
 - **用户测试数据**：
   - 收集前签署知情同意书
   - 所有数据匿名化处理，用随机 ID 替代真实身份
@@ -410,51 +248,17 @@ curl.exe -L -o emodb_0.parquet "https://hf-mirror.com/api/datasets/confit/emodb-
 
 | 数据集 | 许可证 | 合规说明 |
 |--------|--------|----------|
-| GoEmotions | Apache-2.0 | 可商用，需归属。simplified 配置已去除 Reddit 用户名（PII） |
-| RAVDESS | CC BY-NC-SA 4.0 | 非商用，需归属，需引用 Livingstone & Russo 2018 |
-| EMO-DB | 研究免费（无正式许可证） | 需引用 Burkhardt et al. 2005 |
-| CASIA | 研究免费（HF 镜像）；商用需购买 | 引用 CLDC-SPC-2005-010 |
-| ESD | 研究用途，需签署协议 | 需引用 Zhou et al. 2021 |
-
-> GoEmotions 注意事项：原始数据包含 Reddit 用户名（个人身份信息）。项目使用 `simplified` 配置加载，该配置已去除 PII。
+| MELD | CC BY-NC-SA 4.0 | 非商用，需归属，需引用 Poria et al. 2019 |
 
 ---
 
 ## 参考文献
 
 ```bibtex
-@inproceedings{demszky2020goemotions,
-  title={GoEmotions: A Dataset of Fine-Grained Emotions},
-  author={Demszky, Dorottya and Movshovitz-Attias, Dana and Kim, Jeongwoo and others},
-  booktitle={ACL},
-  year={2020}
-}
-
-@article{livingstone2018ravdess,
-  title={The Ryerson Audio-Visual Database of Emotional Speech and Song (RAVDESS)},
-  author={Livingstone, Steven R. and Russo, Frank A.},
-  journal={PLoS ONE},
-  year={2018}
-}
-
-@inproceedings{burkhardt2005emodb,
-  title={A Database of German Emotional Speech},
-  author={Burkhardt, Felix and Paeschke, Astrid and Rolfes, Miriam and Sendlmeier, Walter F. and Weiss, Benjamin},
-  booktitle={Interspeech},
-  year={2005}
-}
-
-@misc{casia,
-  title={CASIA Chinese Emotional Speech Corpus},
-  author={Chinese Academy of Sciences, Institute of Automation},
-  howpublished={CLDC-SPC-2005-010},
-  year={2005}
-}
-
-@inproceedings{zhou2021esd,
-  title={Emotional Speech Dataset (ESD): A Multilingual Emotional Speech Corpus},
-  author={Zhou, Kun and Zhao, Xinyu and Ouyang, Shan and others},
-  booktitle={ACL},
-  year={2021}
+@inproceedings{poria2019meld,
+  title={MELD: A Multimodal Multi-Party Dataset for Emotion Recognition in Conversations},
+  author={Poria, Soujanya and Hazarika, Devamanyu and Majumder, Navonil and Naik, Gautam and Cambria, Erik and Mihalcea, Rada},
+  booktitle={Proceedings of the 57th Annual Meeting of the Association for Computational Linguistics (ACL)},
+  year={2019}
 }
 ```

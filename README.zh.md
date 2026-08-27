@@ -45,7 +45,7 @@
 │                                                             │
 │   文本分支: BERT → [CLS] → FC → 7 类情感概率                 │
 │   语音分支: MFCC → CNN → LSTM → FC → 7 类情感概率            │
-│   融合层:   注意力加权拼接 → Softmax → emotion_label          │
+│   融合层:   特征层拼接 MLP (768+128 → 256 → 7)                 │
 └──────────────────────┬──────────────────────────────────────┘
                        │ emotion_label + confidence
                        ▼
@@ -81,14 +81,14 @@
 
 ## 核心特性
 
-- 🧠 **多模态情感识别** — BERT 处理文本，CNN+LSTM 处理语音，注意力机制融合双通道
+- 🧠 **多模态情感识别** — BERT 处理文本，CNN+LSTM 处理语音，特征层拼接融合双通道
 - 🎮 **DQN 行为决策** — 宠物根据用户情绪和自身状态自主选择回应方式，越用越懂你
 - 🌱 **成长系统** — 心情、好感度、精力、经验值四维属性，等级解锁新行为
 - 🖥️ **桌面透明窗口** — PyQt5 置顶渲染，宠物蹲在任务栏旁，不挡工作
 - 💬 **情感对话** — 基于情绪标签的模板对话引擎，回应贴合当下情境
 - 📊 **可复现实验** — 固定随机种子，TensorBoard 记录训练全流程
 - 🔒 **隐私优先** — 所有数据本地存储，不上传云端
-- 🎓 **教育友好** — CNN+LSTM 从零训练（不直接调用预训练 SER API），完整学习链路；数据规模精简到 ~7.4k 行，免费 Colab GPU 约 20 分钟可完成训练
+- 🎓 **教育友好** — CNN+LSTM 从零训练（不直接调用预训练 SER API），完整学习链路；采用 MELD 全量数据（~13.7k 行，text+audio 对齐），笔记本 GPU 约 15 分钟可完成训练
 
 ---
 
@@ -177,12 +177,12 @@ cp .env.example .env
 # 编辑 .env，设置 HF_HOME、DEVICE 等
 ```
 
-### 下载数据
+### 准备数据
 
 ```bash
-# 下载 5 个数据集（GoEmotions + RAVDESS + CASIA + EMO-DB + ESD，约 7,444 行）
-#    精简方案说明详见 docs/dataset.md
-python scripts/download_data.py --dataset all --target ./data/raw
+# 准备数据集：MELD 需人工申请（原始视频约 10.8GB），本项目使用预处理后的
+#    FLAC 音频 + CSV 标签，详见 docs/dataset.md。
+#    将 labels.csv 与 meld_audio/{train,dev,test}/ 放入 data/raw/ 即可。
 ```
 
 ### 训练模型
@@ -194,13 +194,13 @@ bash scripts/run_all.sh
 # 方式二：分步训练
 
 # 1) 训练情感识别模型
-python -m emotion_recognition.train --config config.yaml --epochs 20
+python -m emotion_recognition.train --config config.yaml --epochs 20 --batch_size 32 --lr 1e-4 --use-pretrained-bert
 
 # 2) 训练 DQN 智能体
 python -m rl_agent.train --config config.yaml --episodes 1000
 
 # 3) 评估模型
-python -m emotion_recognition.evaluate --checkpoint checkpoints/best_model.pt
+python -m emotion_recognition.evaluate --checkpoint checkpoints/best_model.pt --data ./data --modality fusion
 ```
 
 ### 启动桌面宠物
@@ -215,15 +215,17 @@ python -m desktop_pet.main
 
 ## 实验结果
 
-> 完整实验数据详见 [docs/experiments.md](docs/experiments.md)。
+> 完整实验数据详见 [docs/experiments.md](docs/experiments.md)。所有随机种子固定为 42。
 
 | 实验项 | 指标 | 结果 |
 |--------|------|------|
-| 文本情感识别 (BERT) | Accuracy / F1-macro | 待补充 |
-| 语音情感识别 (CNN+LSTM) | Accuracy / F1-macro | 待补充 |
-| 多模态融合 | Accuracy / F1-macro | 待补充 |
-| DQN 训练 | 平均奖励收敛曲线 | 待补充 |
+| 多模态情感识别（融合） | Test Accuracy / macro-F1 | 0.5018 / 0.3042 |
+| 文本分支 (BERT) 消融 | Test Accuracy / macro-F1 | 0.2473 / 0.0854 |
+| 语音分支 (CNN+LSTM) 消融 | Test Accuracy / macro-F1 | 0.0773 / 0.0341 |
+| DQN 训练 | 平均奖励收敛曲线 | 见 experiments.md 实验二 |
 | 用户测试 (N=300, 3 个月) | PHQ-9 / GAD-7 变化 | 待补充 |
+
+> 情感识别配置：`--epochs 20 --batch_size 32 --lr 1e-4 --use-pretrained-bert`（BERT 骨干冻结、反频率类别加权损失、早停 patience=5）。best val acc 0.5033（epoch 6），早停于 epoch 11。
 
 实验设置、超参数、复现步骤均记录在 [docs/experiments.md](docs/experiments.md)。
 

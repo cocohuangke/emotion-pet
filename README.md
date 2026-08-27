@@ -202,39 +202,21 @@ pip install -r requirements.txt
 cp .env.example .env           # optional: set HF_HOME, DEVICE, SEED
 ```
 
-### Smoke Test (no data download required)
-
-The `--mock` flag generates synthetic samples so the full pipeline runs without any dataset. This is the fastest way to verify the installation:
-
-```bash
-# Emotion recognition: 5-epoch mock training
-python -m emotion_recognition.train --mock --epochs 5 --batch_size 16
-
-# Evaluate the mock checkpoint
-python -m emotion_recognition.evaluate --checkpoint checkpoints/best_model.pt --mock
-
-# DQN: 40-episode quick benchmark
-python scripts/rl_quick_train.py
-
-# Full unit test suite
-python -m pytest tests/ -v
-```
-
 ### Real Training (with datasets)
 
 ```bash
-# 1. Download datasets (GoEmotions + RAVDESS + CASIA + EMO-DB + ESD, ~7,444 rows)
-#    See docs/dataset.md for the data subset rationale
-python scripts/download_data.py --dataset all --target ./data/raw
+# 1. Prepare the dataset. MELD requires a manual application (original video is ~10.8GB);
+#    this project uses preprocessed FLAC audio + CSV labels — see docs/dataset.md.
+#    Place data/raw/labels.csv and data/raw/meld_audio/{train,dev,test}/ in the repo.
 
-# 2. Train emotion recognition (20 epochs, runs in ~15 min on free Colab GPU)
-python -m emotion_recognition.train --config config.yaml --epochs 20
+# 2. Train emotion recognition (20 epochs, runs in ~15 min on a laptop GPU)
+python -m emotion_recognition.train --config config.yaml --epochs 20 --batch_size 32 --lr 1e-4 --use-pretrained-bert
 
 # 3. Train DQN agent (1000 episodes)
 python -m rl_agent.train --config config.yaml --episodes 1000
 
 # 4. Evaluate
-python -m emotion_recognition.evaluate --checkpoint checkpoints/best_model.pt
+python -m emotion_recognition.evaluate --checkpoint checkpoints/best_model.pt --data ./data --modality fusion
 ```
 
 ### Launch the Desktop Pet
@@ -251,20 +233,21 @@ The pet appears as a transparent always-on-top window. It cycles through emotion
 
 > Full records: [docs/experiments.md](docs/experiments.md). All seeds fixed at 42.
 
-### Emotion Recognition (preliminary, mock data, 5 epochs)
+### Emotion Recognition (MELD, 13,706 utterances, text+audio aligned)
 
-Mock training verifies the forward/backward/checkpoint pipeline. Accuracy stays at chance level (7-class ≈ 0.14) because mock labels are random — this is expected and **does not reflect real-data performance**.
+| Metric | Value |
+|--------|-------|
+| Best val acc | 0.5033 (epoch 6) |
+| Test acc | 0.5018 |
+| Test macro F1 | 0.3042 |
+| Test weighted F1 | 0.4963 |
+| Trainable params | 970,581 (BERT frozen) |
 
-| Epoch | Train Loss | Train Acc | Val Loss | Val Acc |
-|-------|------------|-----------|----------|---------|
-| 1 | 1.9601 | 0.1406 | 1.9491 | 0.1562 |
-| 2 | 1.9495 | 0.1719 | 1.9512 | 0.1562 |
-| 3 | 1.9577 | 0.1719 | 1.9517 | 0.1875 |
-| 4 | 1.9550 | 0.1250 | 1.9637 | 0.1250 |
-| 5 | 1.9454 | 0.1719 | 1.9529 | 0.1250 |
+Per-class F1 (test): neutral 0.698 · surprise 0.441 · happy 0.376 · sad 0.272 · angry 0.263 · fear 0.041 · disgust 0.039
 
-- **Best val acc**: 0.1875 (epoch 3)
-- **Trainable params**: 24,766,703
+Modality ablation (same checkpoint): fusion 0.5018 · text-only 0.2473 · audio-only 0.0773
+
+> Config: `--epochs 20 --batch_size 32 --lr 1e-4 --use-pretrained-bert` (BERT frozen, class-weighted loss, early stopping patience 5). Early stopping triggered at epoch 11. See [docs/experiments.md](docs/experiments.md) for the full 11-epoch table and analysis.
 
 ### DQN Agent (preliminary, 40 episodes / max 20 steps)
 
@@ -315,11 +298,13 @@ Coverage: encoder forward shapes, fusion with None audio/text/visual inputs, DQN
 | DQN state dim | 12 | `rl_agent/environment.py` |
 | DQN action dim | 5 | `rl_agent/environment.py` |
 
-To reproduce the preliminary results:
+To reproduce the emotion recognition results:
 
 ```bash
-python -m emotion_recognition.train --mock --epochs 5 --batch_size 16
-python scripts/rl_quick_train.py     # 40 episodes, ~50s on GPU
+python -m emotion_recognition.train --config config.yaml --epochs 20 --batch_size 32 --lr 1e-4 --use-pretrained-bert
+python -m emotion_recognition.evaluate --checkpoint checkpoints/best_model.pt --data ./data --modality fusion
+
+python scripts/rl_quick_train.py     # 40-episode DQN benchmark, ~50s on GPU
 python -m pytest tests/ -v           # 48 passed
 ```
 
