@@ -45,7 +45,7 @@ Emotion Pet 采用分层模块化架构。五个核心模块各司其职，通�
 | 子模块 | 文件 | 说明 |
 |--------|------|------|
 | 文本分支 | `models/bert_text.py` | 加载预训练 BERT，取 [CLS] 向量经全连接层输出 7 类情感概率 |
-| 语音分支 | `models/cnn_lstm_audio.py` | MFCC/Mel 频谱图 → 2D-CNN 提取局部特征 → LSTM 捕获时序依赖 → FC 分类 |
+| 语音分支 | `models/cnn_lstm_audio.py` | Mel 频谱（128 维）→ 2D-CNN 提取局部特征 → BiLSTM 捕获时序依赖 → FC 分类。**从零训练**，不加载外部 SER 预训练权重，保留完整学习链路以体现教育价值 |
 | 融合层 | `models/fusion.py` | 对文本和语音分支的隐层表示做注意力加权拼接，输出最终情感分布 |
 | 数据加载 | `dataset.py` | 统一读取 text/audio 数据，做 tokenize、特征提取、标签对齐 |
 | 训练 | `train.py` | 训练入口，支持混合精度、梯度累积、TensorBoard 日志 |
@@ -82,44 +82,36 @@ happy, sad, angry, fear, surprise, disgust, neutral
 | 交互环境 | `environment.py` | 封装宠物与用户的交互循环，定义状态/动作/奖励 |
 | 训练 | `train.py` | DQN 训练入口，支持 TensorBoard 记录奖励曲线 |
 
-**状态空间 (State)**：
+**状态空间 (State)**，共 12 维：
 
 ```
 state = [
     emotion_one_hot,       # 7 维，当前情感标签 one-hot
-    pet_mood,              # 归一化，宠物当前心情
-    pet_affection,         # 归一化，好感度
-    pet_energy,            # 归一化，精力值
-    pet_level,             # 归一化，等级
-    time_of_day,           # 归一化，一天中的时段
-    recent_interaction,    # 最近 N 次交互的情感摘要
+    history,               # 3 维，最近 3 次模拟用户反馈，归一化到 [-1, 1]
+    time_features,         # 2 维，[当天交互时刻(0~1), 会话进度(步数/最大步数)]
 ]
 ```
 
-**动作空间 (Action)**：
+**动作空间 (Action)**，共 5 种反馈策略：
 
 ```
 actions = [
-    "comfort",        # 安慰 — 用户负面情绪时触发
-    "act_cute",       # 撒娇
-    "dance",          # 跳舞
-    "stay_alone",     # 安静独处
-    "remind_rest",    # 提醒休息
-    "play_music",     # 播放音乐
-    "tell_joke",      # 讲笑话
-    "idle",           # 待机
+    "comfort",        # 安慰
+    "encourage",      # 鼓励
+    "distract",       # 转移注意力
+    "listen",         # 倾听
+    "accompany",      # 陪伴
 ]
 ```
 
 **奖励设计**：
 
-| 事件 | 奖励 |
-|------|------|
-| 用户正面反馈（点击/微笑/正向文字） | +1.0 |
-| 用户负面反馈（关闭/忽略/负向文字） | -0.5 |
-| 好感度提升 | +0.3 × Δaffection |
-| 宠物精力耗尽仍被交互 | -0.2 |
-| 等级提升 | +2.0 |
+```
+reward = 1.0 × 情绪改善度 + 0.5 × 模拟用户反馈
+```
+
+- **情绪改善度**：转移前后情绪效价 (valence) 之差，为主信号，驱动智能体将用户情绪导向更积极方向；
+- **模拟用户反馈**：由情绪改善度叠加高斯噪声后裁剪到 [-1, 1]，为辅助信号，模拟真实用户打分的主观性。
 
 ---
 
@@ -176,15 +168,17 @@ actions = [
 ```
 data/
 ├── raw/              # 原始数据集（不提交 git）
-│   ├── text/         #   文本情感数据
-│   ├── audio/        #   语音情感数据
-│   └── labels.csv    #   标签映射
+│   ├── text/         #   文本情感数据（GoEmotions 英文 + ESD 中文转录）
+│   ├── audio/        #   语音情感数据（RAVDESS/CASIA/EMO-DB/ESD，16kHz WAV）
+│   └── labels.csv    #   统一标签映射（~7,444 行，5 个数据集）
 ├── processed/        # 预处理后的张量/特征文件
 ├── README.md
-
+│
 checkpoints/          # 模型权重 (.pt)
 logs/                 # TensorBoard 事件文件
 ```
+
+> 数据集规模说明：GoEmotions 3,000（英文文本，子采样）+ ESD 1,500（中文文本+语音配对，子采样）+ RAVDESS 1,440（英文语音）+ CASIA 1,200（中文语音）+ EMO-DB 304（德文语音）= 约 7,444 行。详见 `docs/dataset.md`。
 
 ---
 
@@ -258,3 +252,6 @@ def get_render_state() -> dict:
 
 4. **为什么本地部署？**
    心理健康数据高度敏感。所有推理和存储均在本地完成，不依赖云端 API，消除数据泄露风险。
+
+5. **为什么 CNN+LSTM 从零训练而不直接用 emotion2vec+？**
+   本项目为本科实践项目，核心目标之一是学习并展示 CNN+LSTM 在 SER 任务上的完整训练流程。直接加载预训练 SER 模型（如 emotion2vec+）等同于调用 API，失去教育价值。当前版本先跑 CNN+LSTM baseline，观察收敛情况；若效果不理想，再在"未来改进"阶段引入 emotion2vec+ 作为特征提取器或 fine-tune 起点。

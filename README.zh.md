@@ -52,9 +52,9 @@
 ┌─────────────────────────────────────────────────────────────┐
 │              ② DQN 强化学习智能体                             │
 │                                                             │
-│   State:  [emotion, pet_stats, time, interaction_history]   │
-│   Action: [安慰, 撒娇, 跳舞, 独处, 提醒休息, 播放音乐, ...]   │
-│   Reward: 用户正向反馈 (+) / 负向反馈 (-) / 好感度变化        │
+│   State:  [emotion_one_hot(7), history(3), time(2)]  12 维       │
+│   Action: [安慰, 鼓励, 转移注意力, 倾听, 陪伴]  5 种反馈策略       │
+│   Reward: 1.0×情绪改善度 + 0.5×模拟用户反馈                      │
 │   Network: DQN + Experience Replay + Target Network          │
 └──────────────────────┬──────────────────────────────────────┘
                        │ selected_action
@@ -88,6 +88,7 @@
 - 💬 **情感对话** — 基于情绪标签的模板对话引擎，回应贴合当下情境
 - 📊 **可复现实验** — 固定随机种子，TensorBoard 记录训练全流程
 - 🔒 **隐私优先** — 所有数据本地存储，不上传云端
+- 🎓 **教育友好** — CNN+LSTM 从零训练（不直接调用预训练 SER API），完整学习链路；数据规模精简到 ~7.4k 行，免费 Colab GPU 约 20 分钟可完成训练
 
 ---
 
@@ -158,7 +159,7 @@ emotion-pet/
 
 ```bash
 # 克隆仓库
-git clone <repo-url> emotion-pet
+git clone https://github.com/cocohuangke/emotion-pet.git emotion-pet
 cd emotion-pet
 
 # 创建虚拟环境
@@ -179,10 +180,9 @@ cp .env.example .env
 ### 下载数据
 
 ```bash
-# 下载并预处理公开情感数据集
+# 下载 5 个数据集（GoEmotions + RAVDESS + CASIA + EMO-DB + ESD，约 7,444 行）
+#    精简方案说明详见 docs/dataset.md
 python scripts/download_data.py --dataset all --target ./data/raw
-
-# 详见 docs/dataset.md 了解数据集选择和手动下载方式
 ```
 
 ### 训练模型
@@ -200,7 +200,7 @@ python -m emotion_recognition.train --config config.yaml --epochs 20
 python -m rl_agent.train --config config.yaml --episodes 1000
 
 # 3) 评估模型
-python -m emotion_recognition.evaluate --checkpoint checkpoints/emotion_best.pt
+python -m emotion_recognition.evaluate --checkpoint checkpoints/best_model.pt
 ```
 
 ### 启动桌面宠物

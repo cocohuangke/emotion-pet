@@ -104,6 +104,10 @@ The text branch (BERT) and speech branch (CNN+LSTM) are **parallel independent m
 | Pure SER | Captures prosody directly | Loses semantic content |
 | **Multimodal fusion (this project)** | Semantic + prosody互补 | Requires paired data |
 
+### Why CNN+LSTM from scratch (not emotion2vec+)?
+
+This is an undergraduate practice project — the goal is to learn and demonstrate the full SER training pipeline, not to ship a production model. Loading a pretrained SER foundation model like emotion2vec+ would be equivalent to "calling an API" and would erase the educational value. We run CNN+LSTM as a baseline first; emotion2vec+ is noted as a future improvement in `docs/dataset.md` if the baseline underperforms.
+
 ### Why a simulated DQN environment?
 
 Real user interaction data requires a deployed product and months of collection. The `PetEnvironment` simulates user valence dynamics with a 5×7 action-effect matrix and stochastic user feedback, enabling offline policy training before any real deployment. The reward is `Δvalence + simulated_user_feedback`, where user feedback is clipped Gaussian noise around the valence change.
@@ -219,10 +223,11 @@ python -m pytest tests/ -v
 ### Real Training (with datasets)
 
 ```bash
-# 1. Download datasets (see docs/dataset.md for manual options)
+# 1. Download datasets (GoEmotions + RAVDESS + CASIA + EMO-DB + ESD, ~7,444 rows)
+#    See docs/dataset.md for the data subset rationale
 python scripts/download_data.py --dataset all --target ./data/raw
 
-# 2. Train emotion recognition (20 epochs)
+# 2. Train emotion recognition (20 epochs, runs in ~15 min on free Colab GPU)
 python -m emotion_recognition.train --config config.yaml --epochs 20
 
 # 3. Train DQN agent (1000 episodes)
